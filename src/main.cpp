@@ -7,8 +7,177 @@ int main() {
 	llvm::DataLayout datalayout("e-m:e-i8:8:32-i16:16:32-i64:64-n32:64-S128");
 	llvm::LLVMContext llvm;
 
+	auto print_struct = [&](const char *name, llvm::StructType *s) {
+		std::cerr << "\n\e[1m" << name << "\e[22m:\n\n";
+		const auto *layout = datalayout.getStructLayout(s);
+		std::cerr << "  hasPadding: " << std::boolalpha << layout->hasPadding() << '\n';
+		std::cerr << "  getNumElements: " << s->getNumElements() << '\n';
+		for (unsigned i = 0; i < s->getNumElements(); ++i) {
+			std::string str;
+			llvm::raw_string_ostream rso(str);
+			s->elements()[i]->print(rso, true, false);
+
+			std::cerr << "  " << i << ": \e[32m" << rso.str() << "\e[39m\n";
+			std::cerr << "    offset="
+			          << layout->getElementOffset(i)
+			          << ", width=\n";
+			// try {
+				// std::cerr << s->elements()[i]->getIntegerBitWidth() << '\n';
+			// } catch (...) {
+				// std::cerr << "???\n";
+			// }
+		}
+		std::cerr << "  Size: " << layout->getSizeInBytes() << "\n\n";
+	};
+
+	llvm::IntegerType *i1  = llvm::IntegerType::get(llvm, 1);
+	llvm::IntegerType *i8  = llvm::IntegerType::get(llvm, 8);
+	llvm::IntegerType *i16 = llvm::IntegerType::get(llvm, 16);
 	llvm::IntegerType *i24 = llvm::IntegerType::get(llvm, 24);
 	llvm::IntegerType *i32 = llvm::IntegerType::get(llvm, 32);
+	llvm::IntegerType *i64 = llvm::IntegerType::get(llvm, 64);
+
+	llvm::FunctionType *i32e   = llvm::FunctionType::get(i32, true);
+	llvm::PointerType  *i32ep  = llvm::PointerType::get(i32e, 0);
+	llvm::PointerType  *i32epp = llvm::PointerType::get(i32ep, 0);
+
+	llvm::PointerType *i8p  = llvm::PointerType::get(i8,  0);
+	llvm::PointerType *i8pp = llvm::PointerType::get(i8p, 0);
+
+	llvm::ArrayType *i8x4 = llvm::ArrayType::get(i8, 4);
+	llvm::ArrayType *i8x8 = llvm::ArrayType::get(i8, 8);
+
+	// %"class.std::basic_ostream.base" = type { i32 (...)** }
+	llvm::StructType *basic_ostream_base = llvm::StructType::get(i32epp);
+	print_struct("class.std::basic_ostream.base", basic_ostream_base);
+
+	// %"class.std::locale::facet" = type <{
+	//     i32 (...)**,
+	//     i32,
+	//     [4 x i8]
+	// }>
+	llvm::StructType *locale_facet = llvm::StructType::get(llvm, {i32epp, i32, i8x4}, true);
+	print_struct("class.std::locale::facet", locale_facet);
+	llvm::PointerType *locale_facetp = llvm::PointerType::get(locale_facet, 0);
+	llvm::PointerType *locale_facetpp = llvm::PointerType::get(locale_facetp, 0);
+
+	// %"class.std::locale::_Impl" = type {
+	//     i32,
+	//     %"class.std::locale::facet"**,
+	//     i64,
+	//     %"class.std::locale::facet"**,
+	//     i8**
+	// }
+	llvm::StructType *locale_impl = llvm::StructType::get(i32, locale_facetpp, i64, locale_facetpp, i8pp);
+	print_struct("class.std::locale::_Impl", locale_impl);
+	llvm::PointerType *locale_implp = llvm::PointerType::get(locale_impl, 0);
+
+	// %"class.std::locale" = type { %"class.std::locale::_Impl"* }
+	llvm::StructType *locale = llvm::StructType::get(locale_implp);
+	print_struct("class.std::locale", locale);
+
+	// %"class.std::basic_streambuf" = type {
+	//     i32 (...)**,
+	//     i8*,
+	//     i8*,
+	//     i8*,
+	//     i8*,
+	//     i8*,
+	//     i8*,
+	//     %"class.std::locale"
+	// }
+	llvm::StructType *basic_streambuf = llvm::StructType::get(i32epp, i8p, i8p, i8p, i8p, i8p, i8p, locale);
+	print_struct("class.std::basic_streambuf", basic_streambuf);
+
+	// %union.anon = type { i64, [8 x i8] }
+	llvm::StructType *union_anon = llvm::StructType::get(i64, i8x8);
+	print_struct("union.anon", union_anon);
+
+	// %"struct.std::__cxx11::basic_string<char>::_Alloc_hider" = type { i8* }
+	llvm::StructType *alloc_hider = llvm::StructType::get(i8p);
+	print_struct("struct.std::__cxx11::basic_string<char>::_Alloc_hider", alloc_hider);
+
+	// %"class.std::__cxx11::basic_string" = type {
+	//     %"struct.std::__cxx11::basic_string<char>::_Alloc_hider",
+	//     i64,
+	//     %union.anon
+	// }
+	llvm::StructType *basic_string = llvm::StructType::get(alloc_hider, i64, union_anon);
+	print_struct("class.std::__cxx11::basic_string", basic_string);
+
+	// %"class.std::__cxx11::basic_stringbuf" = type {
+	//     %"class.std::basic_streambuf",
+	//     i32,
+	//     %"class.std::__cxx11::basic_string"
+	// }
+	llvm::StructType *basic_stringbuf = llvm::StructType::get(basic_streambuf, i32, basic_string);
+	print_struct("class.std::__cxx11::basic_stringbuf", basic_stringbuf);
+
+	llvm::Type *void_type = llvm::Type::getVoidTy(llvm);
+	llvm::PointerType *vp = llvm::PointerType::get(void_type, 0);
+	auto *vi32vpi32 = llvm::FunctionType::get(void_type, {i32, vp, i32}, false);
+	auto *vi32vpi32p = llvm::PointerType::get(vi32vpi32, 0);
+
+	// %"struct.std::ios_base::_Callback_list" = type {
+	//     %"struct.std::ios_base::_Callback_list"*,
+	//     void (i32, %"class.std::ios_base"*, i32)*,
+	//     i32,
+	//     i32
+	// }
+	auto *callback_list = llvm::StructType::get(vp, vi32vpi32p, i32, i32);
+	print_struct("struct.std::ios_base::_Callback_list", callback_list);
+	auto *callback_listp = llvm::PointerType::get(callback_list, 0);
+
+	// %"struct.std::ios_base::_Words" = type {
+	//     i8*,
+	//     i64
+	// }
+	auto *words = llvm::StructType::get(i8p, i64);
+	print_struct("struct.std::ios_base::_Words", words);
+	auto *wordsx8 = llvm::ArrayType::get(words, 8);
+	auto *wordsp = llvm::PointerType::get(words, 0);
+
+	// %"class.std::ios_base" = type {
+	//     i32 (...)**,
+	//     i64,
+	//     i64,
+	//     i32,
+	//     i32,
+	//     i32,
+	//     %"struct.std::ios_base::_Callback_list"*,
+	//     %"struct.std::ios_base::_Words",
+	//     [8 x %"struct.std::ios_base::_Words"],
+	//     i32,
+	//     %"struct.std::ios_base::_Words"*,
+	//     %"class.std::locale"
+	// }
+	auto *ios_base = llvm::StructType::get(i32epp, i64, i64, i32, i32, i32, callback_listp, words, wordsx8, i32, wordsp, locale);
+	print_struct("class.std::ios_base", ios_base);
+
+	// %"class.std::basic_ios" = type {
+	//     %"class.std::ios_base",
+	//     %"class.std::basic_ostream"*,
+	//     i8,
+	//     i8,
+	//     %"class.std::basic_streambuf"*,
+	//     %"class.std::ctype"*,
+	//     %"class.std::num_put"*,
+	//     %"class.std::num_get"*
+	// }
+	auto *basic_ios = llvm::StructType::get(ios_base, vp, i8, i8, vp, vp, vp, vp);
+	print_struct("class.std::basic_ios", basic_ios);
+
+	// %"class.std::__cxx11::basic_ostringstream" = type {
+	//     %"class.std::basic_ostream.base",
+	//     %"class.std::__cxx11::basic_stringbuf",
+	//     %"class.std::basic_ios"
+	// }
+	llvm::StructType *basic_ostringstream = llvm::StructType::get(basic_ostream_base, basic_stringbuf, basic_ios);
+	print_struct("class.std::__cxx11::basic_ostringstream", basic_ostringstream);
+
+	return 0;
+
+	/*
 	llvm::StructType *s1 = llvm::StructType::get(i32, i32, i24, i24, i32, i24, i24, i32);
 	const llvm::StructLayout *structlayout1 = datalayout.getStructLayout(s1);
 	std::cout << "hasPadding: " << std::boolalpha << structlayout1->hasPadding() << '\n';
@@ -140,4 +309,5 @@ int main() {
 		std::cout << '\n';
 	}
 	std::cout << "Size (10): " << structlayout10->getSizeInBytes() << '\n';
+	//*/
 }
