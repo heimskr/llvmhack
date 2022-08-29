@@ -3,6 +3,24 @@
 #include <llvm/IR/LLVMContext.h>
 #include <string>
 
+std::pair<int, int> getWidth(llvm::DataLayout &dl, llvm::Type *type) {
+	if (type->isStructTy()) {
+		auto sublayout = dl.getStructLayout(reinterpret_cast<llvm::StructType *>(type));
+		return {sublayout->getSizeInBytes(), 0};
+	}
+
+	if (type->isIntegerTy())
+		return {type->getIntegerBitWidth() / 8, 0};
+
+	if (type->isPointerTy())
+		return {8, 1};
+
+	if (type->isArrayTy())
+		return {type->getArrayNumElements() * getWidth(dl, type->getArrayElementType()).first, 1};
+
+	return {0, -1};
+}
+
 int main() {
 	llvm::DataLayout datalayout("e-m:e-i8:8:32-i16:16:32-i64:64-n32:64-S128");
 	llvm::LLVMContext llvm;
@@ -17,15 +35,16 @@ int main() {
 			llvm::raw_string_ostream rso(str);
 			s->elements()[i]->print(rso, true, false);
 
+			auto [width, certainty] = getWidth(datalayout, s->elements()[i]);
+
 			std::cerr << "  " << i << ": \e[32m" << rso.str() << "\e[39m\n";
-			std::cerr << "    offset="
+			std::cerr << "    offset = "
 			          << layout->getElementOffset(i)
-			          << ", width=\n";
-			// try {
-				// std::cerr << s->elements()[i]->getIntegerBitWidth() << '\n';
-			// } catch (...) {
-				// std::cerr << "???\n";
-			// }
+			          << ", width = ";
+			if (certainty == -1)
+				std::cerr << "???\n";
+			else
+				std::cerr << width << (certainty == 1? " (presumably)" : "") << '\n';
 		}
 		std::cerr << "  Size: " << layout->getSizeInBytes() << "\n\n";
 	};
